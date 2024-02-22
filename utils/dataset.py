@@ -46,7 +46,6 @@ class ImageDataset(torch.utils.data.Dataset):
 
         image_path = self.images[idx]
         image = cv2.imread(image_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         image_height, image_width, _ = image.shape
         crop_height, crop_width = self.crop_size, self.crop_size
@@ -68,28 +67,31 @@ class ImageDataset(torch.utils.data.Dataset):
             if np.random.rand() > 0.5:
                 image = np.rot90(image)
                 
-        hr_patch = torch.from_numpy(image.copy()).to(torch.float32).permute(2, 0, 1).contiguous() / 255.
+        hr_patch = self.totensor(image.copy())
         
-        lr_patch: torch.Tensor = image_rescaler(hr_patch, 1, 1, self.interpolation, 1 / self.scale_factor, self.antialias)
+        lr_image: torch.Tensor = image_rescaler(image.copy(), 255., 255., self.interpolation, 1 / self.scale_factor, self.antialias, 
+                                                output_format='array', dtype='uint8', layout='hwc', dispersed=True)
         
-        elr_patch = lr_patch.clone() * 255 + 0.5
-        elr_patch = elr_patch.clamp(0, 255).to(torch.uint8).permute(1, 2, 0).contiguous().numpy()
-        elr_patch = cv2.cvtColor(elr_patch, cv2.COLOR_RGB2BGR)
-
-        # Encode the LR patch into a bitstream
-        _, bitstream = cv2.imencode('.jpg', elr_patch, [cv2.IMWRITE_JPEG_QUALITY, self.img_quality])
-        # Decode the bitstream back into an image
-        decoded = cv2.imdecode(bitstream, cv2.IMREAD_COLOR)
-        decoded = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
-        decoded = torch.from_numpy(decoded).to(torch.float32).permute(2, 0, 1).contiguous() / 255.
-        elr_patch = decoded
+        lr_patch = self.totensor(lr_image.copy())
         
-        bitrate = len(bitstream) * 8 / (crop_height * crop_width)
+        
+        ehr_patch, ehr_bitrate = self.get_jpeg(image)
+        elr_patch, elr_bitrate = self.get_jpeg(lr_image)
         
         if self.cache:
-            self.cache[idx] = (hr_patch, lr_patch, elr_patch, bitrate)
+            self.cache[idx] = (hr_patch, lr_patch, ehr_patch, elr_patch, ehr_bitrate, elr_bitrate)
         
-        return hr_patch, lr_patch, elr_patch, bitrate
+        return hr_patch, lr_patch, ehr_patch, elr_patch, ehr_bitrate, elr_bitrate
+    
+    def get_jpeg(self, img):
+        _, bitstream = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, self.img_quality])
+        decoded = cv2.imdecode(bitstream, cv2.IMREAD_COLOR)
+        decoded = self.totensor(decoded)
+        return decoded, len(bitstream) * 8 / (img.shape[0] * img.shape[1])
+    
+    def totensor(self, img):
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        return torch.from_numpy(img).to(torch.float32).permute(2, 0, 1) / 255.
                     
 
 

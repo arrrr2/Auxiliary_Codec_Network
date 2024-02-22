@@ -72,3 +72,8 @@ if __name__=='__main__':
     # net_img = make_dot(result)
     # import graphviz
     # net_img.render("net", format = 'png')
+    
+    from torchviz import make_dot
+    import graphviz
+    net_img = make_dot(result)
+    net_img.render("net", format = 'png')

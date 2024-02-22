@@ -28,15 +28,20 @@ acnet:
   train: True
   name: jpeg
   num_levels: 12
+  save: True
 
 benet:
   train: True
   name: jpeg
   m: 10
+  save: True
 
 crnet:
-  train: True
+  train: False
   name: tad
+  save: False
 
 ppnet:
-  name: edsr
+  train: True
+  name: bicubicpp
+  save: True
