@@ -5,7 +5,7 @@ from torch.nn.functional import interpolate
 def image_rescaler(source:torch.Tensor | np.ndarray, input_range=1.0, output_range=1.0, 
              mode='bicubic', scale_factor=1.0, antialias=True, 
              output_format='tensor', dtype='float32', layout='chw', dim=3, 
-             dispersed=False) -> torch.Tensor | np.ndarray:
+             dispersed=False, device='cpu') -> torch.Tensor | np.ndarray:
     """
     Rescale images using specified interpolation method.
     Parameters:
@@ -25,6 +25,8 @@ def image_rescaler(source:torch.Tensor | np.ndarray, input_range=1.0, output_ran
     # Ensure input is a float32 tensor if needed
     if isinstance(source, np.ndarray):
         source = torch.tensor(source)
+    
+    source = source.to('cpu')
     
     if dispersed == False:
         if source.dtype != torch.float32:
@@ -47,7 +49,7 @@ def image_rescaler(source:torch.Tensor | np.ndarray, input_range=1.0, output_ran
                 rescaled: torch.Tensor = interpolate(source, scale_factor=scale_factor,
                                                 mode=mode, antialias=antialias)
             else: 
-                input = (input * 255. + 0.5).clamp(0, 255).to(torch.uint8)
+                source = (source * 255. + 0.5).clamp(0, 255).to(torch.uint8)
                 rescaled: torch.Tensor = interpolate(source, scale_factor=scale_factor,
                                                 mode=mode, antialias=antialias)
                 rescaled = rescaled.to(torch.float32) / 255.
@@ -67,6 +69,8 @@ def image_rescaler(source:torch.Tensor | np.ndarray, input_range=1.0, output_ran
     elif dtype == 'float32':
         if dispersed and fact > 1: rescaled = rescaled + .5.to(torch.uint8)
         rescaled = rescaled.to(torch.float32)
+        
+    rescaled = rescaled.to(device)
 
     # Convert to desired output type
     if output_format == 'array':

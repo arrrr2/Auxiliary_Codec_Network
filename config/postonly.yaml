@@ -1,0 +1,53 @@
+general:
+  acnet: jpeg
+  benet: jpeg
+  crnet: jpeg
+  pnet: desr
+
+  log_dir: 'logs_pponly'
+  load_model_dir: 'params'
+  model_dir: 'params_pponly'
+
+  train_dirs: ['/mnt/datasets/DIV2K_train_HR_bmp/']
+  val_dirs: ['/home/ubuntu/data/datasets/DIV2K_valid_HR_bmp/']
+  test_dirs: ['/mnt/datasets/set14/']
+
+  crop_size: 128
+  batch_size: 16
+  lr: 0.00005
+  epochs: 2000
+  interpolation: bicubic
+  antialias: True
+  num_workers: 16
+  scale_factor: 2
+
+  scale: 2
+  summary_iters: 100
+  color_channels: 3
+
+  rec_scale: 1.0
+  reg_scale: 0.1
+  bit_scale: 0.00001
+
+
+acnet:
+  train: True
+  name: jpeg
+  num_levels: 12
+  save: True
+
+benet:
+  train: True
+  name: jpeg
+  m: 10
+  save: True
+
+crnet:
+  train: True
+  name: tad
+  save: True
+
+ppnet:
+  train: True
+  name: bicubicpp
+  save: True

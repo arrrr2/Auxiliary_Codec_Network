@@ -4,3 +4,5 @@ logs/
 param*
 *log*
 *.out
+*param*
+*no*

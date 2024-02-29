@@ -19,24 +19,24 @@ from utils.dataset import ImageDataset as ds
 torch.backends.cudnn.benchmark = True
 
 parser.add_argument('--cuda', type=int, default=3, help='CUDA device index')
-parser.add_argument('-q', type=int, default=90, help='quality')
+parser.add_argument('-q', type=int, default=70, help='quality')
 parser.add_argument('--workers', type=int, default=1, help='number of workers for dataloader')
 args = parser.parse_args()
 device = torch.device('cuda:' + str(args.cuda) if torch.cuda.is_available() else 'cpu')
 quality = int(args.q)
 workers = int(args.workers)
 
-with open('./config/pretraining.yaml', 'r') as f:
+with open('./config/postonly.yaml', 'r') as f:
     config = yaml.safe_load(f)
     
     
 model_dir = config['general']['model_dir']
+load_model_dir = config['general']['load_model_dir']
 log_dir = config['general']['log_dir']
 
 os.makedirs(model_dir, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
-writer = SummaryWriter(log_dir=f'logs/{quality}')
-
+writer = SummaryWriter(log_dir=f'{log_dir}/{quality}')
 
 def load_model(module_prefix, config, **extra_args):
     module_name = f"{module_prefix}.{config['name']}"
@@ -44,16 +44,11 @@ def load_model(module_prefix, config, **extra_args):
     model_class = getattr(module, config['name'])
     return model_class(**config.get('args', {}), **extra_args)
 
-# 假设config是一个配置字典，包含所有模型的配置信息
-crnet = load_model('models.crnet', config['crnet'], scale=config['general']['scale'])
-ppnet = load_model('models.ppnet', config['ppnet'], scale=config['general']['scale'])
-acnet = load_model('models.acnet', config['acnet'], num_levels=config['acnet']['num_levels'])
-benet = load_model('models.benet', config['benet'], m=config['benet']['m'])
 
-train_crnet = config['crnet']['train']
+ppnet = load_model('models.ppnet', config['ppnet'], scale=config['general']['scale'])
+
+
 train_ppnet = config['ppnet']['train']
-train_acnet = config['acnet']['train']
-train_benet = config['benet']['train']
 
 train_dataset = ds(config['general']['train_dirs'], config['general']['crop_size'], False, 
                    True, config['general']['interpolation'], config['general']['scale_factor'],
@@ -69,42 +64,25 @@ train_loader = DataLoader(train_dataset, batch_size=config['general']['batch_siz
 val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=0,pin_memory=True)
 test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=workers,pin_memory=True)
 
-crnet.to(device); ppnet.to(device); acnet.to(device); benet.to(device)
+ppnet.to(device); 
 
 criterion = nn.MSELoss()
 
-models = [crnet, ppnet, acnet, benet]
-model_type = ['crnet', 'ppnet', 'acnet', 'benet']
+models = [ppnet,]
+model_type = ['ppnet']
 optimizers = [torch.optim.Adam(net.parameters(), lr=config['general']['lr'], betas=(0.9, 0.99)) \
               for net, mt in zip(models, model_type) if config[mt]['train']]
 for net in models:
     net.train()
 
 train_config = {
-    'crnet': {
-        'train': train_crnet,
-        'model': crnet,
-        'optimizer': torch.optim.Adam(crnet.parameters(), lr=config['general']['lr'], betas=(0.9, 0.99)),
-        'get_input': lambda hr, lr, ehr, elr, bih, bil: (hr, lr), 
-    },
     'ppnet': {
         'train': train_ppnet,
         'model': ppnet,
         'optimizer': torch.optim.Adam(ppnet.parameters(), lr=config['general']['lr'], betas=(0.9, 0.99)),
         'get_input': lambda hr, lr, ehr, elr, bih, bil: (elr, hr), 
     },
-    'acnet': {
-        'train': train_acnet,
-        'model': acnet,
-        'optimizer': torch.optim.Adam(acnet.parameters(), lr=config['general']['lr'], betas=(0.9, 0.99)),
-        'get_input': lambda hr, lr, ehr, elr, bih, bil: (hr, ehr), 
-    },
-    'benet': {
-        'train': train_benet,
-        'model': benet,
-        'optimizer': torch.optim.Adam(benet.parameters(), lr=config['general']['lr'], betas=(0.9, 0.99)),
-        'get_input': lambda hr, lr, ehr, elr, bih, bil: (hr, bih), 
-    }
+
 }
 
 def iter_process(typ, data, add_log=False, val=False):
@@ -133,21 +111,19 @@ def validate(epoch):
         for i, (hr, lr, eh, el, bih, bil) in enumerate(val_loader):
             data = (hr.to(device), lr.to(device), eh.to(device), el.to(device), \
                                         bih.to(device, dtype=torch.float32), bil.to(device, dtype=torch.float32))
-            l_cr = iter_process('crnet', data, False, True); met[0] += psnr(l_cr[0]); met_quanted[0] += psnr(l_cr[1])
             l_pp = iter_process('ppnet', data, False, True); met[1] += psnr(l_pp[0]); met_quanted[1] += psnr(l_pp[1])
-            l_ac = iter_process('acnet', data, False, True); met[2] += psnr(l_ac[0]); met_quanted[2] += psnr(l_ac[1])
-            l_be = iter_process('benet', data, False, True); met[3] -= l_be[0]
-        for _ in range(4):
+            el = data[3]
+
+        for _ in range(1, 4):
             met[_] /= len(val_loader) 
             if met[_] != 0: 
-                writer.add_scalar(f'val/psnr_{model_type[_]}', met[_], epoch)
-        if met[0] != 0: writer.add_images('imgs/cr_images', crnet(hr).cpu(), epoch)
+                writer.add_scalar(f'val/psnr_{model_type[0]}', met[_], epoch)
         if met[1] != 0: writer.add_images('imgs/pp_images', ppnet(el).cpu(), epoch)
         if met[2] != 0: 
-            writer.add_images('imgs/ac_images', acnet(hr).cpu(), epoch)
             writer.add_scalar('val/psnr_acnet_quanted', met_quanted[2] / len(val_loader), epoch)
         for _ in range(3): met[_] = met[_].item() if isinstance(met[_], torch.Tensor) else met[_]
         print(f'quality {quality}: Epoch {epoch} | PSNR: CR {met[0]:.2f} | PP {met[1]:.2f} | AC {met[2]:.2f} | BE {met[3]:.2f}')
+        met[0], met[1] = met[1], 0
     for model in models: model.train()
     return met
 
@@ -163,10 +139,7 @@ def train(epoch):
         data = (hr.to(device), lr.to(device), eh.to(device), el.to(device), \
                                         bih.to(device, dtype=torch.float32), bil.to(device, dtype=torch.float32))
         make_log = iter % config['general']['summary_iters'] == 0
-        iter_process('crnet', data, make_log)
         iter_process('ppnet', data, make_log)
-        iter_process('acnet', data, make_log)
-        iter_process('benet', data, make_log)
     current_results = validate(epoch)
     for i, (result, model, typ) in enumerate(zip(current_results, models, model_type)):
         if result > best_results[i] and config[typ]['train'] and config[typ]['save']:
@@ -174,6 +147,9 @@ def train(epoch):
             os.makedirs(osp.join(model_dir, str(quality), typ), exist_ok=True)
             torch.save(model.state_dict(), osp.join(model_dir, str(quality), typ, f'{model.__class__.__name__}.pth'))
             print(f'quality {quality}: Best {typ} model saved, epoch {epoch}, file name: {quality}/{typ}/{model.__class__.__name__}.pth')
-
+            
+            
+for i, model in enumerate(models):
+    model.load_state_dict(torch.load(osp.join(load_model_dir, str(quality), model_type[i], model.__class__.__name__ + '.pth')))
 for epoch in range(config['general']['epochs']):
     train(epoch)
